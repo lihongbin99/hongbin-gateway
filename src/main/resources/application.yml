@@ -1,0 +1,20 @@
+server:
+  port: 8888
+
+spring:
+  application:
+    name: gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 192.168.233.132:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+      routes:
+        - id: gateway
+          uri: lb://-app
+          predicates:
+            - Path=/**
+
