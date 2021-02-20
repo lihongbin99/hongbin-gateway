@@ -3,6 +3,7 @@ package io.lihongbin.config;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.cloud.gateway.config.GlobalCorsProperties;
+import org.springframework.cloud.gateway.handler.AsyncPredicate;
 import org.springframework.cloud.gateway.handler.FilteringWebHandler;
 import org.springframework.cloud.gateway.handler.RoutePredicateHandlerMapping;
 import org.springframework.cloud.gateway.route.Route;
@@ -15,8 +16,11 @@ import org.springframework.web.reactive.handler.AbstractHandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 import static org.springframework.cloud.gateway.handler.RoutePredicateHandlerMapping.ManagementPortType.*;
@@ -30,14 +34,44 @@ public class LoadBalancerOverwriteConfig implements BeanPostProcessor {
     private GlobalCorsProperties globalCorsProperties;
     private Environment environment;
 
+    // 反射创建 Route
+    private static Field idField;
+    private static Field orderField;
+    private static Field predicateField;
+    private static Field gatewayFiltersField;
+    private static Field metadataField;
+    private static Constructor<?> constructor;
+
     public LoadBalancerOverwriteConfig(FilteringWebHandler webHandler,
             RouteLocator routeLocator,
             GlobalCorsProperties globalCorsProperties,
-            Environment environment) {
+            Environment environment) throws NoSuchFieldException {
         this.webHandler = webHandler;
         this.routeLocator = routeLocator;
         this.globalCorsProperties = globalCorsProperties;
         this.environment = environment;
+
+        // 准备反射对象创建新的 Route
+        LoadBalancerOverwriteConfig.idField = getField("id");
+        LoadBalancerOverwriteConfig.orderField = getField("order");
+        LoadBalancerOverwriteConfig.predicateField = getField("predicate");
+        LoadBalancerOverwriteConfig.gatewayFiltersField = getField("gatewayFilters");
+        LoadBalancerOverwriteConfig.metadataField = getField("metadata");
+        // 创建新的路由
+        Constructor<?>[] constructors = Route.class.getDeclaredConstructors();
+        for (Constructor<?> constructor : constructors) {
+            if (constructor.getParameterCount() == 6) {
+                constructor.setAccessible(true);
+                LoadBalancerOverwriteConfig.constructor = constructor;
+                break;
+            }
+        }
+    }
+
+    public static Field getField(String fieldName) throws NoSuchFieldException {
+        Field field = Route.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field;
     }
 
     @Override
@@ -106,23 +140,32 @@ public class LoadBalancerOverwriteConfig implements BeanPostProcessor {
                         }
 
                         // 替换的核心方法
+                        Route route = r;
                         try {
 
                             ServerHttpRequest request = exchange.getRequest();
                             URI srcUrl = request.getURI();
                             int i = srcUrl.getPath().indexOf("/", 1);
                             if (i != -1) {
+                                // 创建新的 uri
                                 String client = srcUrl.getPath().substring(1, i);
                                 URI uri = new URI(r.getUri().getScheme() + "://" + client + r.getUri().getAuthority());
-                                Field field = r.getClass().getDeclaredField("uri");
-                                field.setAccessible(true);
-                                field.set(r, uri);
+                                // 获取旧路由的对象
+                                String id = (String) idField.get(r);
+                                int order = (int) orderField.get(r);
+                                AsyncPredicate predicate = (AsyncPredicate) predicateField.get(r);
+                                List gatewayFilters = (List) gatewayFiltersField.get(r);
+                                Map metadata = (Map) metadataField.get(r);
+
+                                // 创建新的路由
+                                route = (Route) constructor.newInstance(id, uri, order, predicate, gatewayFilters, metadata);
                             }
+
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
 
-                        exchange.getAttributes().put(GATEWAY_ROUTE_ATTR, r);
+                        exchange.getAttributes().put(GATEWAY_ROUTE_ATTR, route);
                         return Mono.just(webHandler);
                     }).switchIfEmpty(Mono.empty().then(Mono.fromRunnable(() -> {
                         exchange.getAttributes().remove(GATEWAY_PREDICATE_ROUTE_ATTR);
