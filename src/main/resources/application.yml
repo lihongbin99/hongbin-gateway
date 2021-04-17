@@ -14,7 +14,7 @@ spring:
           enabled: true
       routes:
         - id: gateway
-          uri: lb://-app
+          uri: lb://gateway
           predicates:
             - Path=/**
 

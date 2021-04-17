@@ -148,17 +148,22 @@ public class LoadBalancerOverwriteConfig implements BeanPostProcessor {
                             int i = srcUrl.getPath().indexOf("/", 1);
                             if (i != -1) {
                                 // 创建新的 uri
-                                String client = srcUrl.getPath().substring(1, i);
-                                URI uri = new URI(r.getUri().getScheme() + "://" + client + r.getUri().getAuthority());
-                                // 获取旧路由的对象
-                                String id = (String) idField.get(r);
-                                int order = (int) orderField.get(r);
-                                AsyncPredicate predicate = (AsyncPredicate) predicateField.get(r);
-                                List gatewayFilters = (List) gatewayFiltersField.get(r);
-                                Map metadata = (Map) metadataField.get(r);
+                                String project = srcUrl.getPath().substring(1, i);
+                                int j = srcUrl.getPath().indexOf("/", i + 1);
+                                if (j != -1) {
+                                    String module = srcUrl.getPath().substring(i + 1, j);
 
-                                // 创建新的路由
-                                route = (Route) constructor.newInstance(id, uri, order, predicate, gatewayFilters, metadata);
+                                    URI uri = new URI(r.getUri().getScheme() + "://" + project + "-" + module);
+                                    // 获取旧路由的对象
+                                    String id = (String) idField.get(r);
+                                    int order = (int) orderField.get(r);
+                                    AsyncPredicate predicate = (AsyncPredicate) predicateField.get(r);
+                                    List gatewayFilters = (List) gatewayFiltersField.get(r);
+                                    Map metadata = (Map) metadataField.get(r);
+
+                                    // 创建新的路由
+                                    route = (Route) constructor.newInstance(id, uri, order, predicate, gatewayFilters, metadata);
+                                }
                             }
 
                         } catch (Exception e) {
